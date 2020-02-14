@@ -23,7 +23,9 @@ var/
 *.egg-info/
 
 .idea/
+.vscode/
 
 ## do not push heavy files which are created during training to github
 logs/
 datasets/
+outputs/
