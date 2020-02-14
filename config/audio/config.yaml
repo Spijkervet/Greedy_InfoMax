@@ -1,6 +1,7 @@
 time: 0
 device: "gpu"
 experiment: "audio"
+local_rank: 0 # deepspeed
 defaults:
   - architecture: cpc 
   - general: defaults

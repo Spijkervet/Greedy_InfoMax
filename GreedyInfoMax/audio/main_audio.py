@@ -1,8 +1,12 @@
+import sys
+sys.path.append('/home/deepspeed/Greedy_InfoMax')
+
 import os
 import argparse
 import torch
 import time
 import numpy as np
+import deepspeed
 
 try:
     import hydra
@@ -31,10 +35,14 @@ def train(args, logs, model, optimizer):
         test_dataset,
     ) = get_dataloader.get_libri_dataloaders(args)
 
+    
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model_engine, optimizer, trainloader, __ = deepspeed.initialize(args=args, model=model, model_parameters=parameters, training_data=train_dataset)
+
 
     total_step = len(train_loader)
     # how often to output training values
-    print_idx = 100
+    print_idx = 1
     # how often to validate training process by plotting latent representations of various speakers
     latent_val_idx = 1000
 
@@ -140,6 +148,9 @@ def main(args):
 
 if __name__ == "__main__":
     if hydra_available:
+        for idx, s in enumerate(sys.argv):
+            if 'local_rank' in s:
+                sys.argv[idx] = sys.argv[idx][2:] # strip --
         hydra_main()
     else:
         args = arg_parser.parse_args()
