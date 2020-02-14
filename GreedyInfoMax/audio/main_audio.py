@@ -34,7 +34,7 @@ def train(args, logs, model, optimizer):
 
     total_step = len(train_loader)
     # how often to output training values
-    print_idx = 1  # was 100
+    print_idx = 100
     # how often to validate training process by plotting latent representations of various speakers
     latent_val_idx = 1000
 
