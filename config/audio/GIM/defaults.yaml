@@ -1,0 +1,14 @@
+learning_rate: 1.5e-4 # Learning rate
+prediction_step: 12 # Time steps k to predict into future
+negative_samples: 10 # Number of negative samples to be used for training
+
+# Which type of method to use for negative sampling:
+# 0 - inside the loop for the prediction time-steps. Slow, but samples from all but the current pos sample
+# 1 - outside the loop for prediction time-steps
+#   Low probability (<0.1%) of sampling the positive sample as well.
+# 2 - outside the loop for prediction time-steps. Sampling only within the current sequence
+#   Low probability of sampling the positive sample as well.
+sampling_method: 1
+
+train_layer: 6 #  Index of the layer to be trained individually (0-5), or training network as one (6)
+subsample: False # Boolean to decide whether to subsample from the total sequence lengh within intermediate layers

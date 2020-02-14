@@ -1,0 +1,17 @@
+# Epoch to start GIM training from:
+# v=0 - start training from scratch,
+# v>0 - load pre-trained model that was trained for v epochs and continue training
+# (path to model is specified in opt.model_path)
+start_epoch: 0
+
+model_path: "." # Directory of the saved model (path within --data_input_dir)",
+
+# Number of the saved model to be used for testing pre-trained models
+# (loaded using model_path + model_X.ckpt, where X is the model_num passed here)
+model_num: ""
+
+# Which type of model to use for additional trainings of linear classifiers:
+# 0 - pretrained CPC model
+# 1 - randomly initialized model
+# 2 - fully supervised training model
+model_type: 0
