@@ -6,7 +6,9 @@ import argparse
 import torch
 import time
 import numpy as np
-import deepspeed
+# import deepspeed
+from torch.utils.tensorboard import SummaryWriter
+
 
 try:
     import hydra
@@ -27,6 +29,8 @@ from GreedyInfoMax.audio.validation import val_by_InfoNCELoss
 
 def train(args, logs, model, optimizer):
 
+    writer = SummaryWriter(log_dir=os.path.join(os.getcwd()))
+
     # get datasets and dataloaders
     (
         train_loader,
@@ -37,7 +41,7 @@ def train(args, logs, model, optimizer):
 
     
     parameters = filter(lambda p: p.requires_grad, model.parameters())
-    model_engine, optimizer, trainloader, __ = deepspeed.initialize(args=args, model=model, model_parameters=parameters, training_data=train_dataset)
+    # model_engine, optimizer, trainloader, __ = deepspeed.initialize(args=args, model=model, model_parameters=parameters, training_data=train_dataset)
 
 
     total_step = len(train_loader)
@@ -94,6 +98,11 @@ def train(args, logs, model, optimizer):
                 loss_epoch[idx] += print_loss
 
         logs.append_train_loss([x / total_step for x in loss_epoch])
+        
+        writer.add_scalar('Loss/train', np.array([x / total_step for x in loss_epoch]).mean(), epoch)
+        writer.flush()
+
+        
 
         # validate by testing the CPC performance on the validation set
         if args.validate:

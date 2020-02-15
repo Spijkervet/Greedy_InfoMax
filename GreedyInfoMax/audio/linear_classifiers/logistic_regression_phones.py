@@ -2,12 +2,20 @@ import torch
 import time
 import os
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
 ## own modules
 from GreedyInfoMax.audio.data import get_dataloader, phone_dict
 from GreedyInfoMax.utils import logger, utils
 from GreedyInfoMax.audio.arg_parser import arg_parser
 from GreedyInfoMax.audio.models import load_audio_model
+
+try:
+    import hydra
+
+    hydra_available = True
+except ImportError:
+    hydra_available = False
 
 
 def weights_init(m):
@@ -16,9 +24,11 @@ def weights_init(m):
         torch.nn.init.xavier_normal_(m.weight.data)
 
 
-def train(opt, phone_dict, context_model, model):
+def train(opt, train_dataset, phone_dict, context_model, model, optimizer, n_features, logs):
     total_step = len(train_dataset.file_list)
-
+    writer = SummaryWriter(log_dir=os.path.join(os.getcwd()))
+    criterion = torch.nn.CrossEntropyLoss()
+    total_i = 0
     for epoch in range(opt.num_epochs):
         loss_epoch = 0
 
@@ -66,7 +76,7 @@ def train(opt, phone_dict, context_model, model):
             loss = criterion(output, targets)
 
             # calculate accuracy
-            accuracy, = utils.accuracy(output.data, targets)
+            (accuracy,) = utils.accuracy(output.data, targets)
 
             # Backward and optimize
             optimizer.zero_grad()
@@ -75,6 +85,10 @@ def train(opt, phone_dict, context_model, model):
 
             sample_loss = loss.item()
             loss_epoch += sample_loss
+            
+            writer.add_scalar('Loss/train_step', sample_loss, total_i)
+            writer.add_scalar('Accuracy/train_step', accuracy, total_i)
+            writer.flush()
 
             if i % 10 == 0:
                 print(
@@ -88,12 +102,15 @@ def train(opt, phone_dict, context_model, model):
                         sample_loss,
                     )
                 )
+            total_i += 1
 
         logs.append_train_loss([loss_epoch / total_step])
         logs.create_log(model, epoch=epoch, accuracy=accuracy)
+        writer.add_scalar('Loss/train_epoch', loss_epoch / total_step, epoch)
+        writer.flush()
 
 
-def test(opt, phone_dict, context_model, model):
+def test(opt, test_dataset, phone_dict, context_model, model, optimizer, n_features, logs):
     model.eval()
 
     total = 0
@@ -148,9 +165,19 @@ def test(opt, phone_dict, context_model, model):
     return accuracy
 
 
-if __name__ == "__main__":
+if hydra_available:
 
-    opt = arg_parser.parse_args()
+    @hydra.main(
+        config_path=os.path.join(os.getcwd(), "config/audio/config.yaml"), strict=False
+    )
+    def hydra_main(cfg):
+        args = argparse.Namespace(**cfg)
+        # check_generic_args(cfg)
+        # config = cfg.to_container()
+        main(args)
+
+
+def main(opt):
     arg_parser.create_log_path(opt, add_path_var="linear_model")
 
     opt.batch_size = 8
@@ -175,7 +202,6 @@ if __name__ == "__main__":
     model = torch.nn.Sequential(torch.nn.Linear(n_features, n_classes)).to(opt.device)
     model.apply(weights_init)
 
-    criterion = torch.nn.CrossEntropyLoss()
 
     if opt.model_type == 2:
         params = list(context_model.parameters()) + list(model.parameters())
@@ -185,7 +211,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(params, lr=1e-4)
 
     # load dataset
-    phone_dict = phone_dict.load_phone_dict(opt)
+    pd = phone_dict.load_phone_dict(opt)
     _, train_dataset, _, test_dataset = get_dataloader.get_libri_dataloaders(opt)
 
     logs = logger.Logger(opt)
@@ -193,10 +219,10 @@ if __name__ == "__main__":
 
     try:
         # Train the model
-        train(opt, phone_dict, context_model, model)
+        train(opt, train_dataset, pd, context_model, model, optimizer, n_features, logs)
 
         # Test the model
-        accuracy = test(opt, phone_dict, context_model, model)
+        accuracy = test(opt, test_dataset, pd, context_model, model, optimizer, n_features, logs)
 
     except KeyboardInterrupt:
         print("Training interrupted, saving log files")
@@ -208,3 +234,14 @@ if __name__ == "__main__":
         torch.save(
             context_model.state_dict(), os.path.join(opt.log_path, "context_model.ckpt")
         )
+
+
+if __name__ == "__main__":
+    if hydra_available:
+        for idx, s in enumerate(sys.argv):
+            if "local_rank" in s:
+                sys.argv[idx] = sys.argv[idx][2:]  # strip --
+        hydra_main()
+    else:
+        args = arg_parser.parse_args()
+        main(args)
