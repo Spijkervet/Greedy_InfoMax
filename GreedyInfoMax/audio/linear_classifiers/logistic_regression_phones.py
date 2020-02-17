@@ -1,3 +1,5 @@
+import sys
+import argparse
 import torch
 import time
 import os
@@ -107,6 +109,7 @@ def train(opt, train_dataset, phone_dict, context_model, model, optimizer, n_fea
         logs.append_train_loss([loss_epoch / total_step])
         logs.create_log(model, epoch=epoch, accuracy=accuracy)
         writer.add_scalar('Loss/train_epoch', loss_epoch / total_step, epoch)
+        writer.add_scalar('Accuracy/train_epoch', acc_epoch / total_step, epoch)
         writer.flush()
 
 
@@ -178,10 +181,16 @@ if hydra_available:
 
 
 def main(opt):
-    arg_parser.create_log_path(opt, add_path_var="linear_model")
+    opt.time = time.ctime()
+    
+    # Device configuration
+    opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     opt.batch_size = 8
     opt.num_epochs = 20
+    
+    arg_parser.create_log_path(opt, add_path_var="linear_model")
+
 
     # random seeds
     torch.manual_seed(opt.seed)
