@@ -1,21 +1,38 @@
-import sys
-sys.path.append('/home/deepspeed/Greedy_InfoMax')
-
 import os
 import argparse
 import torch
 import time
 import numpy as np
+
 # import deepspeed
 from torch.utils.tensorboard import SummaryWriter
 
 
 try:
-    import hydra
-    hydra_available = True
-except ImportError:
-    hydra_available = False
+    from sacred import Experiment
+    from sacred.stflow import LogFileWriter
+    from sacred.observers import FileStorageObserver, MongoObserver
 
+    sacred_available = True
+
+    #### pass configuration
+    ex = Experiment("experiment")
+
+    #### file output directory
+    ex.observers.append(FileStorageObserver("./logs"))
+
+    #### database output, make sure to configure the right user
+    ex.observers.append(
+        MongoObserver().create(
+            url=f"mongodb://admin:admin@localhost:27017/?authMechanism=SCRAM-SHA-1",
+            db_name="db",
+        )
+    )
+
+
+except Exception as e:
+    sacred_available = False
+    print(e)
 
 
 #### own modules
@@ -27,9 +44,7 @@ from GreedyInfoMax.audio.validation import val_by_latent_speakers
 from GreedyInfoMax.audio.validation import val_by_InfoNCELoss
 
 
-def train(args, logs, model, optimizer):
-
-    writer = SummaryWriter(log_dir=os.path.join(os.getcwd()))
+def train(args, model, optimizer, writer, logs):
 
     # get datasets and dataloaders
     (
@@ -39,14 +54,12 @@ def train(args, logs, model, optimizer):
         test_dataset,
     ) = get_dataloader.get_libri_dataloaders(args)
 
-    
-    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    # parameters = filter(lambda p: p.requires_grad, model.parameters())
     # model_engine, optimizer, trainloader, __ = deepspeed.initialize(args=args, model=model, model_parameters=parameters, training_data=train_dataset)
-
 
     total_step = len(train_loader)
     # how often to output training values
-    print_idx = 1
+    print_idx = 100
     # how often to validate training process by plotting latent representations of various speakers
     latent_val_idx = 1000
 
@@ -98,11 +111,6 @@ def train(args, logs, model, optimizer):
                 loss_epoch[idx] += print_loss
 
         logs.append_train_loss([x / total_step for x in loss_epoch])
-        
-        writer.add_scalar('Loss/train', np.array([x / total_step for x in loss_epoch]).mean(), epoch)
-        writer.flush()
-
-        
 
         # validate by testing the CPC performance on the validation set
         if args.validate:
@@ -111,26 +119,25 @@ def train(args, logs, model, optimizer):
             )
             logs.append_val_loss(validation_loss)
 
+        # log metrics
+        mean_loss = np.array([x / total_step for x in loss_epoch]).mean()
+        # Tensorboard
+        writer.add_scalar("Loss/train", mean_loss, epoch)
+        writer.flush()
+
+        # Sacred
+        ex.log_scalar("train.loss_epoch", mean_loss)
+
         logs.create_log(model, epoch=epoch, optimizer=optimizer)
 
 
-if hydra_available:
-    @hydra.main(config_path=os.path.join(os.getcwd(), "config/audio/config.yaml"), strict=False)
-    def hydra_main(cfg):
-        args = argparse.Namespace(**cfg)
-        # check_generic_args(cfg)
-        # config = cfg.to_container()
-        main(args)
+def main(args, experiment_name):
 
-def main(args):
-    # Set start time
+    # set start time
     args.time = time.ctime()
 
     # Device configuration
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    # Experiment
-    args.experiment = "audio"
 
     arg_parser.create_log_path(args)
 
@@ -138,16 +145,21 @@ def main(args):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     np.random.seed(args.seed)
-    
+
     # initialize logger
     logs = logger.Logger(args)
 
     # load model
     model, optimizer = load_audio_model.load_model_and_optimizer(args)
 
+    # set comment to experiment's name
+    tb_dir = os.path.join(args.out_dir, experiment_name)
+    os.makedirs(tb_dir)
+    writer = SummaryWriter(log_dir=tb_dir)
+
     try:
         # Train the model
-        train(args, logs, model, optimizer)
+        train(args, model, optimizer, writer, logs)
 
     except KeyboardInterrupt:
         print("Training got interrupted, saving log-files now.")
@@ -155,12 +167,35 @@ def main(args):
     logs.create_log(model)
 
 
+if sacred_available:
+    from GreedyInfoMax.utils.yaml_config_hook import yaml_config_hook
+
+    @ex.config
+    def my_config():
+        yaml_config_hook(ex)
+
+        #### override any settings here
+        # start_epoch = 100
+        # ex.add_config(
+        #   {'start_epoch': start_epoch})
+
+    @ex.automain
+    @LogFileWriter(ex)
+    def sacred_main(_run, _log):
+        args = argparse.Namespace(**_run.config)
+        if len(_run.observers) > 1:
+            out_dir = _run.observers[1].dir
+        else:
+            out_dir = _run.observers[0].dir
+
+        # set the log dir
+        args.out_dir = out_dir
+        main(args, experiment_name=_run.experiment_info["name"])
+
+
 if __name__ == "__main__":
-    if hydra_available:
-        for idx, s in enumerate(sys.argv):
-            if 'local_rank' in s:
-                sys.argv[idx] = sys.argv[idx][2:] # strip --
-        hydra_main()
-    else:
+
+    if not sacred_available:
         args = arg_parser.parse_args()
-        main(args)
+        main(args, experiment_name="greedy_infomax")
+
