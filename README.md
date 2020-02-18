@@ -105,7 +105,23 @@ Additionally, for the audio experiments:
     --train_layer 0
     ```
     
+## Sacred and Omniboard
+- To run the code with Sacred, use the provided `audio_traineval_sacred.sh` or `vision_traineval_sacred.sh`.
+- The experiments are stored in the `logs` folder, and in a MongoDB which can be setup:
+```
+cd omniboard
+sh deploy_omniboard.sh
+```
+- The user credentials can be edited in `omniboard/.env` and in the `main_(audio)/(vision).py` files.
+- Omniboard can be viewed at `http://localhost:9000`
+- You can administer the MongoDB with Mongo-Express at `http://localhost:8181`
 
+## TensorBoard
+- The experiment's progress can also be viewed on TensorBoard by running:
+```
+tensorboard --logdir logs
+```
+- TensorBoard can be viewed at `http://localhost:6006`
 
 ## Cite
 

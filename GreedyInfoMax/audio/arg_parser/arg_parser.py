@@ -37,7 +37,7 @@ def create_log_path(opt, add_path_var=None):
     unique_path = False
 
     # overriding after adding Sacred
-    if hasattr(opt, 'out_dir'): 
+    if opt.use_sacred: 
         opt.log_path = opt.out_dir
 
     else:

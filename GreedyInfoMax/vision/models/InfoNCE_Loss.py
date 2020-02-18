@@ -33,7 +33,7 @@ class InfoNCE_Loss(nn.Module):
                     model_utils.makeDeltaOrthogonal(
                         m.weight,
                         nn.init.calculate_gain(
-                            "Sigmoid"
+                            "sigmoid"
                         ),
                     )
 

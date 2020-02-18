@@ -1,8 +1,7 @@
 time: 0
 device: "gpu"
-experiment: "audio"
+experiment: "vision"
 defaults:
-  - architecture: cpc 
   - general: defaults
   - GIM: defaults
   - reload: defaults

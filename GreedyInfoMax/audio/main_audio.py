@@ -4,7 +4,6 @@ import torch
 import time
 import numpy as np
 
-# import deepspeed
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -153,7 +152,7 @@ def main(args, experiment_name):
     model, optimizer = load_audio_model.load_model_and_optimizer(args)
 
     # set comment to experiment's name
-    tb_dir = os.path.join(args.out_dir, experiment_name)
+    tb_dir = os.path.join(args.log_path, experiment_name)
     os.makedirs(tb_dir)
     writer = SummaryWriter(log_dir=tb_dir)
 
@@ -172,7 +171,7 @@ if sacred_available:
 
     @ex.config
     def my_config():
-        yaml_config_hook(ex)
+        yaml_config_hook('./config/audio/config.yaml', ex)
 
         #### override any settings here
         # start_epoch = 100
@@ -190,6 +189,7 @@ if sacred_available:
 
         # set the log dir
         args.out_dir = out_dir
+        args.use_sacred = True
         main(args, experiment_name=_run.experiment_info["name"])
 
 
@@ -197,5 +197,6 @@ if __name__ == "__main__":
 
     if not sacred_available:
         args = arg_parser.parse_args()
+        args.use_sacred = False
         main(args, experiment_name="greedy_infomax")
 

@@ -1,14 +1,13 @@
 import os
 import yaml
 
-def yaml_config_hook(ex):
+
+def yaml_config_hook(config_file, ex):
     """
     Custom YAML config loader, which can include other yaml files (I like using config files
     insteaad of using argparser)
     """
 
-    # config file
-    config_file = "./config/audio/config.yaml"
     ex.add_config(config_file)
 
     # load yaml files in the nested 'defaults' section, which include defaults for experiments

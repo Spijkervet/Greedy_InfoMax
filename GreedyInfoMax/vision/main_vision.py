@@ -1,6 +1,37 @@
+import os
+import argparse
 import torch
 import time
 import numpy as np
+
+from torch.utils.tensorboard import SummaryWriter
+
+try:
+    from sacred import Experiment
+    from sacred.stflow import LogFileWriter
+    from sacred.observers import FileStorageObserver, MongoObserver
+
+    sacred_available = True
+
+    #### pass configuration
+    ex = Experiment("experiment")
+
+    #### file output directory
+    ex.observers.append(FileStorageObserver("./logs"))
+
+    #### database output, make sure to configure the right user
+    ex.observers.append(
+        MongoObserver().create(
+            url=f"mongodb://admin:admin@localhost:27017/?authMechanism=SCRAM-SHA-1",
+            db_name="db",
+        )
+    )
+
+
+except Exception as e:
+    sacred_available = False
+    print(e)
+
 
 #### own modules
 from GreedyInfoMax.utils import logger
@@ -32,11 +63,24 @@ def validate(opt, model, test_loader):
             )
         )
 
-    validation_loss = [x/total_step for x in loss_epoch]
+    validation_loss = [x / total_step for x in loss_epoch]
     return validation_loss
 
 
-def train(opt, model):
+def train(opt, model, optimizer, writer, logs):
+
+    (
+        train_loader,
+        _,
+        supervised_loader,
+        _,
+        test_loader,
+        _,
+    ) = get_dataloader.get_dataloader(opt)
+
+    if opt.loss == 1:
+        train_loader = supervised_loader
+
     total_step = len(train_loader)
     model.module.switch_calc_loss(True)
 
@@ -70,7 +114,7 @@ def train(opt, model):
             label = label.to(opt.device)
 
             loss, _, _, accuracy = model(model_input, label, n=cur_train_module)
-            loss = torch.mean(loss, 0) # take mean over outputs of different GPUs
+            loss = torch.mean(loss, 0)  # take mean over outputs of different GPUs
             accuracy = torch.mean(accuracy, 0)
 
             if cur_train_module != opt.model_splits and opt.model_splits > 1:
@@ -100,16 +144,24 @@ def train(opt, model):
                 loss_updates[idx] += 1
 
         if opt.validate:
-            validation_loss = validate(opt, model, test_loader) #test_loader corresponds to validation set here
+            validation_loss = validate(
+                opt, model, test_loader
+            )  # test_loader corresponds to validation set here
             logs.append_val_loss(validation_loss)
 
-        logs.append_train_loss([x / loss_updates[idx] for idx, x in enumerate(loss_epoch)])
+        logs.append_train_loss(
+            [x / loss_updates[idx] for idx, x in enumerate(loss_epoch)]
+        )
         logs.create_log(model, epoch=epoch, optimizer=optimizer)
 
 
-if __name__ == "__main__":
+def main(opt, experiment_name):
+    # set start time
+    opt.time = time.ctime()
 
-    opt = arg_parser.parse_args()
+    # Device configuration
+    opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     arg_parser.create_log_path(opt)
     opt.training_dataset = "unlabeled"
 
@@ -126,18 +178,52 @@ if __name__ == "__main__":
 
     logs = logger.Logger(opt)
 
-    train_loader, _, supervised_loader, _, test_loader, _ = get_dataloader.get_dataloader(
-        opt
-    )
-
-    if opt.loss == 1:
-        train_loader = supervised_loader
+    # set comment to experiment's name
+    tb_dir = os.path.join(opt.log_path, experiment_name)
+    os.makedirs(tb_dir)
+    writer = SummaryWriter(log_dir=tb_dir)
 
     try:
         # Train the model
-        train(opt, model)
+        train(opt, model, optimizer, writer, logs)
 
     except KeyboardInterrupt:
         print("Training got interrupted, saving log-files now.")
 
     logs.create_log(model)
+
+
+if sacred_available:
+    from GreedyInfoMax.utils.yaml_config_hook import yaml_config_hook
+
+    @ex.config
+    def my_config():
+        yaml_config_hook("./config/vision/config.yaml", ex)
+
+        #### override any settings here
+        # start_epoch = 100
+        # ex.add_config(
+        #   {'start_epoch': start_epoch})
+
+    @ex.automain
+    @LogFileWriter(ex)
+    def sacred_main(_run, _log):
+        args = argparse.Namespace(**_run.config)
+        if len(_run.observers) > 1:
+            out_dir = _run.observers[1].dir
+        else:
+            out_dir = _run.observers[0].dir
+
+        # set the log dir
+        args.out_dir = out_dir
+        args.use_sacred = False
+        main(args, experiment_name=_run.experiment_info["name"])
+
+
+if __name__ == "__main__":
+    if not sacred_available:
+        opt = arg_parser.parse_args()
+        opt.use_sacred = False
+        print(opt)
+        main(opt, experiment_name="greedy_infomax")
+
