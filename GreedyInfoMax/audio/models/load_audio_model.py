@@ -47,10 +47,6 @@ def load_model_and_optimizer(
             cur_lr = opt.learning_rate
         optimizer.append(torch.optim.Adam(layer.parameters(), lr=cur_lr))
 
-    print(len(optimizer))
-
-    opt.fp16 = True
-    opt.fp16_opt_level = "O2"
     if opt.fp16:
         try:
             from apex import amp

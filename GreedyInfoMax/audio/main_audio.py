@@ -96,11 +96,17 @@ def train(args, model, optimizer, writer, logs):
             for idx, cur_losses in enumerate(loss):
                 model.zero_grad()
 
-                with amp.scale_loss(cur_losses, optimizer) as scaled_loss:
+                if args.fp16:
+                    with amp.scale_loss(cur_losses, optimizer) as scaled_loss:
+                        if idx == len(loss) - 1:
+                            scaled_loss.backward()
+                        else:
+                            scaled_loss.backward(retain_graph=True)
+                else:
                     if idx == len(loss) - 1:
-                        scaled_loss.backward()
+                        cur_losses.backward()
                     else:
-                        scaled_loss.backward(retain_graph=True)
+                        cur_losses.backward(retain_graph=True)
 
                 optimizer[idx].step()
 
