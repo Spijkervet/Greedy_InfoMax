@@ -2,7 +2,7 @@
 
 echo "Using Sacred to log experiments\n"
 echo "Training the Greedy InfoMax Model on audio data (librispeech)"
-python -m GreedyInfoMax.audio.main_audio --name greedy_infomax_vision \
+python -m GreedyInfoMax.audio.main_audio --name greedy_infomax_audio \
     with \
     data_input_dir=./datasets \
     subsample=True \
