@@ -6,6 +6,7 @@ import numpy as np
 
 from torch.utils.tensorboard import SummaryWriter
 
+from apex import amp
 
 try:
     from sacred import Experiment
@@ -71,14 +72,14 @@ def train(args, model, optimizer, writer, logs):
         for step, (audio, filename, _, start_idx) in enumerate(train_loader):
 
             # validate training progress by plotting latent representation of various speakers
-            if step % latent_val_idx == 0:
-                val_by_latent_speakers.val_by_latent_speakers(
-                    args, train_dataset, model, epoch, step
-                )
+            # if step % latent_val_idx == 0:
+            #     val_by_latent_speakers.val_by_latent_speakers(
+            #         args, train_dataset, model, epoch, step
+            #     )
 
             if step % print_idx == 0:
                 print(
-                    "Epoch [{}/{}], Step [{}/{}], Time (s): {:.1f}".format(
+                    "Epoch [{}/{}], Step [{}/{}], Time (s): {:.3f}".format(
                         epoch + 1,
                         args.num_epochs + args.start_epoch,
                         step,
@@ -97,10 +98,12 @@ def train(args, model, optimizer, writer, logs):
             for idx, cur_losses in enumerate(loss):
                 model.zero_grad()
 
-                if idx == len(loss) - 1:
-                    cur_losses.backward()
-                else:
-                    cur_losses.backward(retain_graph=True)
+                with amp.scale_loss(cur_losses, optimizer) as scaled_loss:
+                    if idx == len(loss) - 1:
+                        scaled_loss.backward()
+                    else:
+                        scaled_loss.backward(retain_graph=True)
+
                 optimizer[idx].step()
 
                 print_loss = cur_losses.item()
@@ -171,7 +174,7 @@ if sacred_available:
 
     @ex.config
     def my_config():
-        yaml_config_hook('./config/audio/config.yaml', ex)
+        yaml_config_hook("./config/audio/config.yaml", ex)
 
         #### override any settings here
         # start_epoch = 100

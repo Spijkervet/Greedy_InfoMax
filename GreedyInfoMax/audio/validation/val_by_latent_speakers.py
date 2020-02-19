@@ -16,7 +16,7 @@ def val_by_latent_speakers(opt, dataset, model, epoch, step):
     input_size = (opt.batch_size, 1, 20480)
 
     model.eval()
-    for idx, layer in enumerate(model.module.fullmodel):
+    for idx, layer in enumerate(model.fullmodel): # model.module.fullmodel
         latent_rep_size, latent_rep_length = layer.get_latent_seq_len(input_size)
         big_feature_space.append(
             np.zeros((max_speakers, batch_size, latent_rep_size * latent_rep_length))

@@ -47,9 +47,26 @@ def load_model_and_optimizer(
             cur_lr = opt.learning_rate
         optimizer.append(torch.optim.Adam(layer.parameters(), lr=cur_lr))
 
+    print(len(optimizer))
     model, optimizer = model_utils.reload_weights(opt, model, optimizer, reload_model)
 
     model.train()
     print(model)
 
+    opt.fp16 = True
+    opt.fp16_opt_level = "O2"
+    if opt.fp16:
+        try:
+            from apex import amp
+        except ImportError:
+            raise ImportError(
+                "Install the apex package from https://www.github.com/nvidia/apex to use fp16 for training"
+            )
+
+        print("### USING FP16 ###")
+        model, optimizer = amp.initialize(
+            model, optimizer, opt_level=opt.fp16_opt_level
+        )
+
     return model, optimizer
+
