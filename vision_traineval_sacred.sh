@@ -9,7 +9,6 @@ python -m GreedyInfoMax.vision.main_vision --name vision_experiment \
     batch_size=16 \
     learning_rate=1.5e-4 \
     num_epochs=300 \
-    model_splits=1 \
     fp16=True \
     fp16_opt_level="O2"
 
