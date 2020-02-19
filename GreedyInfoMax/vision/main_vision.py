@@ -3,6 +3,7 @@ import argparse
 import torch
 import time
 import numpy as np
+from apex import amp
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -84,7 +85,7 @@ def train(opt, model, optimizer, writer, logs):
     total_step = len(train_loader)
     model.module.switch_calc_loss(True)
 
-    print_idx = 100
+    print_idx = 1
 
     starttime = time.time()
     cur_train_module = opt.train_module
@@ -127,10 +128,18 @@ def train(opt, model, optimizer, writer, logs):
 
                 model.zero_grad()
 
-                if idx == len(loss) - 1:
-                    cur_losses.backward()
+                if opt.fp16:
+                    with amp.scale_loss(cur_losses, optimizer) as scaled_loss:
+                        if idx == len(loss) - 1:
+                            scaled_loss.backward()
+                        else:
+                            scaled_loss.backward(retain_graph=True)
                 else:
-                    cur_losses.backward(retain_graph=True)
+                    if idx == len(loss) - 1:
+                        cur_losses.backward()
+                    else:
+                        cur_losses.backward(retain_graph=True)
+
                 optimizer[idx].step()
 
                 print_loss = cur_losses.item()
@@ -216,7 +225,7 @@ if sacred_available:
 
         # set the log dir
         args.out_dir = out_dir
-        args.use_sacred = False
+        args.use_sacred = True
         main(args, experiment_name=_run.experiment_info["name"])
 
 

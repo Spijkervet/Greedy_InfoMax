@@ -1,6 +1,8 @@
 time: 0
 device: "gpu"
 experiment: "audio"
+fp16: False
+fp16_opt_level: "O2"
 defaults:
   - architecture: defaults # cpc
   - general: defaults

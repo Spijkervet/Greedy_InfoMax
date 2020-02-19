@@ -9,7 +9,9 @@ python -m GreedyInfoMax.audio.main_audio --name greedy_infomax_audio \
     num_epochs=300 \
     learning_rate=2e-4 \
     start_epoch=0 \
-    output_data_dir=.
+    output_data_dir=. \
+    fp16=True \
+    fp16_opt_level="O2"
 
 
 # echo "Testing the Greedy InfoMax Model for phone classification"
