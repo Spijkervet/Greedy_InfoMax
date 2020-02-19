@@ -6,18 +6,37 @@ import os
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
+try:
+    from sacred import Experiment
+    from sacred.stflow import LogFileWriter
+    from sacred.observers import FileStorageObserver, MongoObserver
+
+    sacred_available = True
+
+    #### pass configuration
+    ex = Experiment("logistic_regression_phones")
+
+    #### file output directory
+    ex.observers.append(FileStorageObserver("./logs"))
+
+    #### database output, make sure to configure the right user
+    ex.observers.append(
+        MongoObserver().create(
+            url=f"mongodb://admin:admin@localhost:27017/?authMechanism=SCRAM-SHA-1",
+            db_name="db",
+        )
+    )
+
+
+except Exception as e:
+    sacred_available = False
+    print(e)
+
 ## own modules
 from GreedyInfoMax.audio.data import get_dataloader, phone_dict
 from GreedyInfoMax.utils import logger, utils
 from GreedyInfoMax.audio.arg_parser import arg_parser
 from GreedyInfoMax.audio.models import load_audio_model
-
-try:
-    import hydra
-
-    hydra_available = True
-except ImportError:
-    hydra_available = False
 
 
 def weights_init(m):
@@ -26,13 +45,23 @@ def weights_init(m):
         torch.nn.init.xavier_normal_(m.weight.data)
 
 
-def train(opt, train_dataset, phone_dict, context_model, model, optimizer, n_features, logs):
+def train(
+    opt,
+    train_dataset,
+    phone_dict,
+    context_model,
+    model,
+    optimizer,
+    n_features,
+    writer,
+    logs
+):
     total_step = len(train_dataset.file_list)
-    writer = SummaryWriter(log_dir=os.path.join(os.getcwd()))
     criterion = torch.nn.CrossEntropyLoss()
     total_i = 0
     for epoch in range(opt.num_epochs):
         loss_epoch = 0
+        acc_epoch = 0
 
         for i, k in enumerate(train_dataset.file_list):
             starttime = time.time()
@@ -87,9 +116,10 @@ def train(opt, train_dataset, phone_dict, context_model, model, optimizer, n_fea
 
             sample_loss = loss.item()
             loss_epoch += sample_loss
-            
-            writer.add_scalar('Loss/train_step', sample_loss, total_i)
-            writer.add_scalar('Accuracy/train_step', accuracy, total_i)
+            acc_epoch += accuracy
+
+            writer.add_scalar("Loss/train_step", sample_loss, total_i)
+            writer.add_scalar("Accuracy/train_step", accuracy, total_i)
             writer.flush()
 
             if i % 10 == 0:
@@ -108,12 +138,18 @@ def train(opt, train_dataset, phone_dict, context_model, model, optimizer, n_fea
 
         logs.append_train_loss([loss_epoch / total_step])
         logs.create_log(model, epoch=epoch, accuracy=accuracy)
-        writer.add_scalar('Loss/train_epoch', loss_epoch / total_step, epoch)
-        writer.add_scalar('Accuracy/train_epoch', acc_epoch / total_step, epoch)
+        writer.add_scalar("Loss/train_epoch", loss_epoch / total_step, epoch)
+        writer.add_scalar("Accuracy/train_epoch", acc_epoch / total_step, epoch)
         writer.flush()
+        
+        # Sacred
+        ex.log_scalar("train.loss", loss_epoch / total_step)
+        ex.log_scalar("train.accuracy", acc_epoch / total_step)
 
 
-def test(opt, test_dataset, phone_dict, context_model, model, optimizer, n_features, logs):
+def test(
+    opt, test_dataset, phone_dict, context_model, model, optimizer, n_features, logs
+):
     model.eval()
 
     total = 0
@@ -168,29 +204,16 @@ def test(opt, test_dataset, phone_dict, context_model, model, optimizer, n_featu
     return accuracy
 
 
-if hydra_available:
-
-    @hydra.main(
-        config_path=os.path.join(os.getcwd(), "config/audio/config.yaml"), strict=False
-    )
-    def hydra_main(cfg):
-        args = argparse.Namespace(**cfg)
-        # check_generic_args(cfg)
-        # config = cfg.to_container()
-        main(args)
-
-
-def main(opt):
+def main(opt, experiment_name):
     opt.time = time.ctime()
-    
+
     # Device configuration
     opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     opt.batch_size = 8
     opt.num_epochs = 20
-    
-    arg_parser.create_log_path(opt, add_path_var="linear_model")
 
+    arg_parser.create_log_path(opt, add_path_var="linear_model")
 
     # random seeds
     torch.manual_seed(opt.seed)
@@ -211,7 +234,6 @@ def main(opt):
     model = torch.nn.Sequential(torch.nn.Linear(n_features, n_classes)).to(opt.device)
     model.apply(weights_init)
 
-
     if opt.model_type == 2:
         params = list(context_model.parameters()) + list(model.parameters())
     else:
@@ -226,12 +248,19 @@ def main(opt):
     logs = logger.Logger(opt)
     accuracy = 0
 
+    # set comment to experiment's name
+    tb_dir = os.path.join(opt.log_path, experiment_name)
+    os.makedirs(tb_dir)
+    writer = SummaryWriter(log_dir=tb_dir)
+
     try:
         # Train the model
-        train(opt, train_dataset, pd, context_model, model, optimizer, n_features, logs)
+        train(opt, train_dataset, pd, context_model, model, optimizer, n_features, writer, logs)
 
         # Test the model
-        accuracy = test(opt, test_dataset, pd, context_model, model, optimizer, n_features, logs)
+        accuracy = test(
+            opt, test_dataset, pd, context_model, model, optimizer, n_features, logs
+        )
 
     except KeyboardInterrupt:
         print("Training interrupted, saving log files")
@@ -245,12 +274,35 @@ def main(opt):
         )
 
 
+if sacred_available:
+    from GreedyInfoMax.utils.yaml_config_hook import yaml_config_hook
+
+    @ex.config
+    def my_config():
+        yaml_config_hook("./config/audio/config.yaml", ex)
+
+        #### override any settings here
+        # start_epoch = 100
+        # ex.add_config(
+        #   {'start_epoch': start_epoch})
+
+    @ex.automain
+    @LogFileWriter(ex)
+    def sacred_main(_run, _log):
+        args = argparse.Namespace(**_run.config)
+        if len(_run.observers) > 1:
+            out_dir = _run.observers[1].dir
+        else:
+            out_dir = _run.observers[0].dir
+
+        # set the log dir
+        args.out_dir = out_dir
+        args.use_sacred = True
+        main(args, experiment_name=_run.experiment_info["name"])
+
+
 if __name__ == "__main__":
-    if hydra_available:
-        for idx, s in enumerate(sys.argv):
-            if "local_rank" in s:
-                sys.argv[idx] = sys.argv[idx][2:]  # strip --
-        hydra_main()
-    else:
+    if not sacred_available:
         args = arg_parser.parse_args()
-        main(args)
+        args.use_sacred = False
+        main(args, experiment_name="logistic_regression_phones")

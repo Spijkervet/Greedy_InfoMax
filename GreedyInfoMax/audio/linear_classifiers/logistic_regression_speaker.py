@@ -6,23 +6,42 @@ import time
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
+try:
+    from sacred import Experiment
+    from sacred.stflow import LogFileWriter
+    from sacred.observers import FileStorageObserver, MongoObserver
+
+    sacred_available = True
+
+    #### pass configuration
+    ex = Experiment("logistic_regression_phones")
+
+    #### file output directory
+    ex.observers.append(FileStorageObserver("./logs"))
+
+    #### database output, make sure to configure the right user
+    ex.observers.append(
+        MongoObserver().create(
+            url=f"mongodb://admin:admin@localhost:27017/?authMechanism=SCRAM-SHA-1",
+            db_name="db",
+        )
+    )
+
+
+except Exception as e:
+    sacred_available = False
+    print(e)
+
+
 ## own modules
 from GreedyInfoMax.audio.data import get_dataloader
 from GreedyInfoMax.utils import logger
 from GreedyInfoMax.audio.arg_parser import arg_parser
 from GreedyInfoMax.audio.models import load_audio_model, loss_supervised_speaker
 
-try:
-    import hydra
 
-    hydra_available = True
-except ImportError:
-    hydra_available = False
-
-
-def train(opt, context_model, loss, train_loader, optimizer, logs):
+def train(opt, context_model, loss, train_loader, optimizer, writer, logs):
     total_step = len(train_loader)
-    writer = SummaryWriter(log_dir=os.path.join(os.getcwd()))
     print_idx = 100
 
     total_i = 0
@@ -39,14 +58,14 @@ def train(opt, context_model, loss, train_loader, optimizer, logs):
             model_input = audio.to(opt.device)
 
             with torch.no_grad():
-                z = context_model.module.forward_through_n_layers(
-                    model_input, 5
-                )
+                z = context_model.module.forward_through_n_layers(model_input, 5)
 
             z = z.detach()
 
             # forward pass
-            total_loss, accuracies = loss.get_loss(model_input, z, z, filename, audio_idx)
+            total_loss, accuracies = loss.get_loss(
+                model_input, z, z, filename, audio_idx
+            )
 
             # Backward and optimize
             optimizer.zero_grad()
@@ -55,9 +74,9 @@ def train(opt, context_model, loss, train_loader, optimizer, logs):
 
             sample_loss = total_loss.item()
             accuracy = accuracies.item()
-            
-            writer.add_scalar('Loss/train_step', sample_loss, total_i)
-            writer.add_scalar('Accuracy/train_step', accuracy, total_i)
+
+            writer.add_scalar("Loss/train_step", sample_loss, total_i)
+            writer.add_scalar("Accuracy/train_step", accuracy, total_i)
             writer.flush()
 
             if i % print_idx == 0:
@@ -79,9 +98,13 @@ def train(opt, context_model, loss, train_loader, optimizer, logs):
             total_i += 1
 
         logs.append_train_loss([loss_epoch / total_step])
-        writer.add_scalar('Loss/train_epoch', loss_epoch / total_step, epoch)
-        writer.add_scalar('Accuracy/train_epoch', acc_epoch / total_step, epoch)
+        writer.add_scalar("Loss/train_epoch", loss_epoch / total_step, epoch)
+        writer.add_scalar("Accuracy/train_epoch", acc_epoch / total_step, epoch)
         writer.flush()
+
+        # Sacred
+        ex.log_scalar("train.loss", loss_epoch / total_step)
+        ex.log_scalar("train.accuracy", acc_epoch / total_step)
 
 
 def test(opt, context_model, loss, data_loader):
@@ -99,14 +122,14 @@ def test(opt, context_model, loss, data_loader):
             model_input = audio.to(opt.device)
 
             with torch.no_grad():
-                z = context_model.module.forward_through_n_layers(
-                    model_input, 5
-                )
+                z = context_model.module.forward_through_n_layers(model_input, 5)
 
             z = z.detach()
 
             # forward pass
-            total_loss, step_accuracy = loss.get_loss(model_input, z, z, filename, audio_idx)
+            total_loss, step_accuracy = loss.get_loss(
+                model_input, z, z, filename, audio_idx
+            )
 
             accuracy += step_accuracy.item()
             loss_epoch += total_loss.item()
@@ -125,27 +148,15 @@ def test(opt, context_model, loss, data_loader):
     return loss_epoch, accuracy
 
 
-if hydra_available:
-
-    @hydra.main(
-        config_path=os.path.join(os.getcwd(), "config/audio/config.yaml"), strict=False
-    )
-    def hydra_main(cfg):
-        args = argparse.Namespace(**cfg)
-        # check_generic_args(cfg)
-        # config = cfg.to_container()
-        main(args)
-
-def main(opt):
+def main(opt, experiment_name):
     opt.time = time.ctime()
-    
+
     # Device configuration
     opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     opt.batch_size = 64
     opt.num_epochs = 50
     opt.learning_rate = 1e-3
-
 
     arg_parser.create_log_path(opt, add_path_var="linear_model")
 
@@ -154,21 +165,15 @@ def main(opt):
     torch.cuda.manual_seed(opt.seed)
     np.random.seed(opt.seed)
 
-
     ## load model
     context_model, optimizer = load_audio_model.load_model_and_optimizer(
-        opt,
-        reload_model=True,
-        calc_accuracy=True,
-        num_GPU=1,
+        opt, reload_model=True, calc_accuracy=True, num_GPU=1,
     )
     context_model.eval()
 
     n_features = context_model.module.reg_hidden
 
-    loss = loss_supervised_speaker.Speaker_Loss(
-        opt, n_features, calc_accuracy=True
-    )
+    loss = loss_supervised_speaker.Speaker_Loss(opt, n_features, calc_accuracy=True)
 
     optimizer = torch.optim.Adam(loss.parameters(), lr=opt.learning_rate)
 
@@ -178,9 +183,14 @@ def main(opt):
     logs = logger.Logger(opt)
     accuracy = 0
 
+    # set comment to experiment's name
+    tb_dir = os.path.join(opt.log_path, experiment_name)
+    os.makedirs(tb_dir)
+    writer = SummaryWriter(log_dir=tb_dir)
+
     try:
         # Train the model
-        train(opt, context_model, loss, train_loader, optimizer, logs)
+        train(opt, context_model, loss, train_loader, optimizer, writer, logs)
 
         # Test the model
         result_loss, accuracy = test(opt, context_model, loss, test_loader)
@@ -191,13 +201,36 @@ def main(opt):
     logs.create_log(loss, accuracy=accuracy, final_test=True, final_loss=result_loss)
 
 
+if sacred_available:
+    from GreedyInfoMax.utils.yaml_config_hook import yaml_config_hook
+
+    @ex.config
+    def my_config():
+        yaml_config_hook("./config/audio/config.yaml", ex)
+
+        #### override any settings here
+        # start_epoch = 100
+        # ex.add_config(
+        #   {'start_epoch': start_epoch})
+
+    @ex.automain
+    @LogFileWriter(ex)
+    def sacred_main(_run, _log):
+        args = argparse.Namespace(**_run.config)
+        if len(_run.observers) > 1:
+            out_dir = _run.observers[1].dir
+        else:
+            out_dir = _run.observers[0].dir
+
+        # set the log dir
+        args.out_dir = out_dir
+        args.use_sacred = True
+        main(args, experiment_name=_run.experiment_info["name"])
+
+
 if __name__ == "__main__":
-    if hydra_available:
-        for idx, s in enumerate(sys.argv):
-            if "local_rank" in s:
-                sys.argv[idx] = sys.argv[idx][2:]  # strip --
-        hydra_main()
-    else:
+    if not sacred_available:
         args = arg_parser.parse_args()
-        main(args)
+        args.use_sacred = False
+        main(args, experiment_name="logistic_regression_speaker")
 

@@ -15,7 +15,7 @@ try:
     sacred_available = True
 
     #### pass configuration
-    ex = Experiment("experiment")
+    ex = Experiment("greedy_infomax")
 
     #### file output directory
     ex.observers.append(FileStorageObserver("./logs"))
