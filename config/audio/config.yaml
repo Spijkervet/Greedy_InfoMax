@@ -4,7 +4,7 @@ experiment: "audio"
 fp16: False
 fp16_opt_level: "O2"
 defaults:
-  - architecture: defaults # cpc
+  - architecture: cpc # defaults
   - general: defaults
   - GIM: defaults
   - reload: defaults

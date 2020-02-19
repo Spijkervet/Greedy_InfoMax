@@ -85,7 +85,7 @@ def train(opt, model, optimizer, writer, logs):
     total_step = len(train_loader)
     model.module.switch_calc_loss(True)
 
-    print_idx = 1
+    print_idx = 100
 
     starttime = time.time()
     cur_train_module = opt.train_module
