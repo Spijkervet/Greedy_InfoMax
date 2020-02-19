@@ -1,9 +1,16 @@
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 import os
 
 
 def distribute_over_GPUs(opt, model, num_GPU):
+    # os.environ['MASTER_ADDR'] = 'localhost'
+    # os.environ['MASTER_PORT'] = '12355'
+
+    # # initialize the process group
+    # dist.init_process_group("gloo", rank=1, world_size=1)
+
     ## distribute over GPUs
     if opt.device.type != "cpu":
         if num_GPU is None:
@@ -20,7 +27,6 @@ def distribute_over_GPUs(opt, model, num_GPU):
         model = nn.DataParallel(model)
         opt.batch_size_multiGPU = opt.batch_size
 
-    model = model.to(opt.device)
     print("Let's use", num_GPU, "GPUs!")
 
     return model, num_GPU

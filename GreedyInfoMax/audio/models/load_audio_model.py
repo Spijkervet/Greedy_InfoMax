@@ -28,11 +28,11 @@ def load_model_and_optimizer(
         calc_accuracy=calc_accuracy,
     )
 
+    model = model.to(opt.device)
+
     # run on only one GPU for supervised losses
     if opt.loss == 2 or opt.loss == 1:
         num_GPU = 1
-
-    model, num_GPU = model_utils.distribute_over_GPUs(opt, model, num_GPU=num_GPU)
 
     """ initialize optimizers
     We need to have a separate optimizer for every individually trained part of the network
@@ -40,7 +40,7 @@ def load_model_and_optimizer(
     even when their respective gradients are zero (due to momentum)
     """
     optimizer = []
-    for idx, layer in enumerate(model.module.fullmodel):
+    for idx, layer in enumerate(model.fullmodel):
         if isinstance(opt.learning_rate, list):
             cur_lr = opt.learning_rate[idx]
         else:
@@ -48,10 +48,6 @@ def load_model_and_optimizer(
         optimizer.append(torch.optim.Adam(layer.parameters(), lr=cur_lr))
 
     print(len(optimizer))
-    model, optimizer = model_utils.reload_weights(opt, model, optimizer, reload_model)
-
-    model.train()
-    print(model)
 
     opt.fp16 = True
     opt.fp16_opt_level = "O2"
@@ -68,5 +64,10 @@ def load_model_and_optimizer(
             model, optimizer, opt_level=opt.fp16_opt_level
         )
 
+    model, num_GPU = model_utils.distribute_over_GPUs(opt, model, num_GPU=num_GPU)
+    model, optimizer = model_utils.reload_weights(opt, model, optimizer, reload_model)
+
+    model.train()
+    print(model)
     return model, optimizer
 

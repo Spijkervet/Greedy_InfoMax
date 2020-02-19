@@ -22,12 +22,13 @@ try:
     ex.observers.append(FileStorageObserver("./logs"))
 
     #### database output, make sure to configure the right user
-    ex.observers.append(
-        MongoObserver().create(
-            url=f"mongodb://admin:admin@localhost:27017/?authMechanism=SCRAM-SHA-1",
-            db_name="db",
-        )
-    )
+
+    # ex.observers.append(
+    #     MongoObserver().create(
+    #         url=f"mongodb://admin:admin@localhost:27017/?authMechanism=SCRAM-SHA-1",
+    #         db_name="db",
+    #     )
+    # )
 
 
 except Exception as e:
@@ -54,12 +55,9 @@ def train(args, model, optimizer, writer, logs):
         test_dataset,
     ) = get_dataloader.get_libri_dataloaders(args)
 
-    # parameters = filter(lambda p: p.requires_grad, model.parameters())
-    # model_engine, optimizer, trainloader, __ = deepspeed.initialize(args=args, model=model, model_parameters=parameters, training_data=train_dataset)
-
     total_step = len(train_loader)
     # how often to output training values
-    print_idx = 100
+    print_idx = 1
     # how often to validate training process by plotting latent representations of various speakers
     latent_val_idx = 1000
 
